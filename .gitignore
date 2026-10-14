@@ -42,3 +42,8 @@ yarn-error.*
 
 # sql.js wasm copied by scripts/copy-sqljs-wasm.mjs
 public/sql-wasm-browser.wasm
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
