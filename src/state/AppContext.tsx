@@ -23,6 +23,9 @@ import type { SyncTransport } from '@/sync/types';
 import { createServices, type AppServices } from './services';
 
 const ACTIVE_CUSTOMER_KEY = 'activeCustomerId';
+/** The Settings connection switch, saved so a reload keeps the rep offline. */
+const CONNECTION_KEY = 'connection.online';
+const OFFLINE_MESSAGE = 'You are offline. Orders send when you are back online.';
 /** Longest a single timer may sleep. Timers are re-armed after every flush anyway. */
 const MAX_TIMER_MS = 60_000;
 const EMPTY_REPORT: FlushReport = {
@@ -145,7 +148,12 @@ export function AppProvider({
         const next = createServices({ db, transport, now: clockNow });
         await next.engine.recoverAfterRestart();
         const savedCustomer = await next.repos.settings.get(ACTIVE_CUSTOMER_KEY);
+        const savedOnline = await next.repos.settings.get(CONNECTION_KEY);
         if (cancelled) return;
+        const startOnline = savedOnline === null ? initiallyOnline : savedOnline === 'true';
+        onlineRef.current = startOnline;
+        setOnlineState(startOnline);
+        transport.setOnline?.(startOnline);
         servicesRef.current = next;
         activeCustomerRef.current = savedCustomer;
         setServices(next);
@@ -182,6 +190,12 @@ export function AppProvider({
       setOnline: (next) => {
         onlineRef.current = next;
         setOnlineState(next);
+        transport.setOnline?.(next);
+        servicesRef.current?.repos.settings
+          .set(CONNECTION_KEY, next ? 'true' : 'false')
+          .catch((error: unknown) =>
+            console.warn('Fieldbook: could not save the connection', error),
+          );
         if (next) void runFlush();
       },
 
@@ -250,12 +264,17 @@ export function AppProvider({
       },
 
       retryOrder: async (orderId) => {
-        const report = await requireServices().engine.retry(orderId);
+        const current = requireServices();
+        if (!onlineRef.current) throw new Error(OFFLINE_MESSAGE);
+        const report = await current.engine.retry(orderId);
         await armTimer();
         return report;
       },
 
-      flushNow: () => runFlush(),
+      flushNow: () => {
+        if (!onlineRef.current) return Promise.reject(new Error(OFFLINE_MESSAGE));
+        return runFlush();
+      },
 
       resetDemoData: async () => {
         const current = requireServices();
@@ -265,7 +284,7 @@ export function AppProvider({
         current.bus.notify();
       },
     };
-  }, [runFlush, armTimer]);
+  }, [runFlush, armTimer, transport]);
 
   const value = useMemo<AppContextValue>(
     () => ({ status, error, services, online, activeCustomerId, actions }),

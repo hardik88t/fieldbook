@@ -211,3 +211,44 @@ describe('cart and orders', () => {
     expect(result.current.value.cart.itemCount).toBe(0);
   });
 });
+
+describe('connection switch', () => {
+  it('refuses Sync now while offline and sends nothing', async () => {
+    const { Wrapper, transport } = makeApp({ online: false });
+    const { result } = await renderReady(
+      () => ({ visit: useActiveCustomer(), cart: useCart(), orders: useOrders(), sync: useSync() }),
+      Wrapper,
+    );
+    await act(async () => {
+      await result.current.value.visit.startVisit('cust-northgate');
+    });
+    await act(async () => {
+      await result.current.value.cart.setQty('rice-basmati-rice-gold', 1);
+    });
+    let placedId = '';
+    await act(async () => {
+      placedId = (await result.current.value.cart.placeOrder('')).id;
+    });
+
+    await act(async () => {
+      await expect(result.current.value.sync.flushNow()).rejects.toThrow(/offline/i);
+    });
+    expect(transport.serverOrderCount()).toBe(0);
+    expect(result.current.value.orders.data?.find((o) => o.id === placedId)?.status).toBe('queued');
+  });
+
+  it('keeps the offline switch after a restart, as a reload would', async () => {
+    const { Wrapper } = makeApp({ online: true });
+    const first = await renderReady(() => useConnectivity(), Wrapper);
+    expect(first.result.current.value.online).toBe(true);
+    await act(async () => {
+      first.result.current.value.setOnline(false);
+    });
+    // Let the save finish before the restart, as the browser's IndexedDB write does.
+    await waitFor(() => expect(first.result.current.value.online).toBe(false));
+    await first.unmount();
+
+    const second = await renderReady(() => useConnectivity(), Wrapper);
+    await waitFor(() => expect(second.result.current.value.online).toBe(false));
+  });
+});

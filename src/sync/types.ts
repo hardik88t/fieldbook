@@ -37,6 +37,8 @@ export interface SubmitOrderResponse {
 
 export interface SyncTransport {
   submitOrder(request: SubmitOrderRequest): Promise<SubmitOrderResponse>;
+  /** Demo transports mirror the Settings connection switch. A real network transport has no need for it. */
+  setOnline?(online: boolean): void;
 }
 
 export type TransportErrorKind = 'offline' | 'timeout' | 'server' | 'rejected';

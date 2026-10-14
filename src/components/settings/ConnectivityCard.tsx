@@ -14,6 +14,7 @@ export function ConnectivityCard() {
         accessibilityLabel="Online connection"
         accessibilityHint="Turns the simulated connection on or off"
         accessibilityState={{ checked: online }}
+        aria-checked={online}
         onPress={() => setOnline(!online)}
         style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       >
