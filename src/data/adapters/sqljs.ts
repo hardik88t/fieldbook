@@ -19,10 +19,20 @@ export function loadSqlJs(wasmUrl?: string): Promise<SqlJsStatic> {
 /**
  * Wraps a sql.js Database in the async SqlDb interface. sql.js is synchronous, so each call
  * completes atomically; transactions are serialised so concurrent callers cannot interleave BEGIN.
+ *
+ * `onWrite` is awaited after every committed write (a single statement, or a transaction on
+ * COMMIT), so a write resolves only once it is persisted. Writes inside an open transaction are not
+ * reported until COMMIT, so a rollback never persists partial state.
  */
-export function wrapSqlJs(raw: Database, options?: { onWrite?: () => void }): SqlDb {
+export function wrapSqlJs(
+  raw: Database,
+  options?: { onWrite?: () => Promise<void> | void },
+): SqlDb {
   const serial = createSerialQueue();
-  const notifyWrite = () => options?.onWrite?.();
+  let inTransaction = false;
+  const notifyWrite = async () => {
+    if (!inTransaction) await options?.onWrite?.();
+  };
 
   const runStatement = <T>(
     sql: string,
@@ -47,12 +57,12 @@ export function wrapSqlJs(raw: Database, options?: { onWrite?: () => void }): Sq
   const db: SqlDb = {
     exec: async (sql) => {
       raw.exec(sql);
-      notifyWrite();
+      await notifyWrite();
     },
     run: async (sql, params) => {
       runStatement(sql, params, false);
       const changes = raw.getRowsModified();
-      notifyWrite();
+      await notifyWrite();
       return { changes };
     },
     all: async <T>(sql: string, params?: readonly SqlValue[]) => runStatement<T>(sql, params, true),
@@ -63,15 +73,19 @@ export function wrapSqlJs(raw: Database, options?: { onWrite?: () => void }): Sq
     transaction: <T>(work: () => Promise<T>) =>
       serial(async () => {
         raw.exec('BEGIN');
+        inTransaction = true;
+        let result: T;
         try {
-          const result = await work();
+          result = await work();
           raw.exec('COMMIT');
-          notifyWrite();
-          return result;
         } catch (error) {
           raw.exec('ROLLBACK');
           throw error;
+        } finally {
+          inTransaction = false;
         }
+        await notifyWrite();
+        return result;
       }),
   };
   return db;
@@ -81,7 +95,7 @@ export function wrapSqlJs(raw: Database, options?: { onWrite?: () => void }): Sq
 export async function openSqlJsDatabase(options?: {
   wasmUrl?: string;
   data?: Uint8Array | null;
-  onWrite?: () => void;
+  onWrite?: () => Promise<void> | void;
 }): Promise<SqlJsHandle> {
   const SQL = await loadSqlJs(options?.wasmUrl);
   const raw = options?.data ? new SQL.Database(options.data) : new SQL.Database();

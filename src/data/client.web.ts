@@ -9,7 +9,6 @@ import type { SqlDb } from './sql';
 const DB_NAME = 'fieldbook';
 const STORE_NAME = 'files';
 const FILE_KEY = 'fieldbook.sqlite';
-const SAVE_DEBOUNCE_MS = 250;
 
 function wasmUrl(): string {
   const base = process.env.EXPO_BASE_URL ?? '';
@@ -59,19 +58,24 @@ export async function openAppDatabase(): Promise<SqlDb> {
   const persistable = typeof indexedDB !== 'undefined';
   const saved = persistable ? await loadBytes() : null;
 
-  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  // Saves run one after another, so the last snapshot always wins on disk.
+  let saveChain: Promise<void> = Promise.resolve();
   let handle: Awaited<ReturnType<typeof openSqlJsDatabase>> | null = null;
 
-  const persist = () => {
-    if (!persistable || !handle) return;
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      saveTimer = null;
-      if (!handle) return;
-      saveBytes(handle.exportBytes()).catch((error: unknown) => {
+  /**
+   * Called after each committed write. The write resolves only once the file is in IndexedDB, so a
+   * reload or closing the tab right after a change keeps it. A failed save does not fail the write,
+   * because the change is still in memory for this session.
+   */
+  const persist = (): Promise<void> => {
+    if (!persistable || !handle) return Promise.resolve();
+    const bytes = handle.exportBytes();
+    saveChain = saveChain
+      .then(() => saveBytes(bytes))
+      .catch((error: unknown) => {
         console.warn('Fieldbook: could not persist database to IndexedDB', error);
       });
-    }, SAVE_DEBOUNCE_MS);
+    return saveChain;
   };
 
   handle = await openSqlJsDatabase({
