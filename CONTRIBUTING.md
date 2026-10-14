@@ -8,6 +8,9 @@ npm run check          # prettier --check, expo lint, tsc --noEmit, jest
 ```
 
 Run `npm run check` before you push. CI runs the same steps and also builds the web export.
+Run `npm run e2e` before you change routing, the web database or the connection switch. It builds the
+web export, serves it under `/fieldbook/` and drives the app in Chromium. It needs
+`npx playwright install chromium` once, or `FIELDBOOK_CHROMIUM` pointing at an installed build.
 Commits follow Conventional Commits (`feat(cart): ...`, `fix(sync): ...`, `test(orders): ...`).
 Branch from `main`, and keep each commit small and self-contained.
 
