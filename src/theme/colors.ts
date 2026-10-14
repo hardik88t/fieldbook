@@ -39,6 +39,8 @@ export const colors = {
   nodeIdle: '#D3CBE6',
   progressTrack: '#E5E0F3',
   tabBar: 'rgba(255, 255, 255, 0.96)',
+  /** Backdrop behind the phone-width column on a wide web window. */
+  stage: '#E9E5F3',
 
   /** Product tile backgrounds and glyph inks, keyed by ProductTone. */
   tone: {
